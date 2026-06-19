@@ -2,13 +2,10 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import errors, evaluate, extract, metrics, results, upload
+from app.api.routes.v1 import router as v1_router
+from app.api.routes.v2 import router as v2_router
 
 api_router = APIRouter()
 
-api_router.include_router(upload.router, tags=["upload"])
-api_router.include_router(extract.router, tags=["extract"])
-api_router.include_router(evaluate.router, tags=["evaluate"])
-api_router.include_router(results.router, tags=["results"])
-api_router.include_router(metrics.router, tags=["metrics"])
-api_router.include_router(errors.router, tags=["errors"])
+api_router.include_router(v1_router, prefix="/v1")
+api_router.include_router(v2_router, prefix="/v2")

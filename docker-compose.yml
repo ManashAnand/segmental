@@ -1,0 +1,55 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: segment-db
+    environment:
+      POSTGRES_USER: segment
+      POSTGRES_PASSWORD: segment
+      POSTGRES_DB: segment
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/docker/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U segment -d segment"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: segment-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: segment-api
+    env_file:
+      - ./backend/.env
+      - ./backend/.env.local
+    environment:
+      DATABASE_URL: postgresql://segment:segment@db:5432/segment
+      OLLAMA_BASE_URL: http://ollama:11434
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app/data/pdfs:/app/app/data/pdfs
+      - ./backend/app/data/cache:/app/app/data/cache
+      - ./backend/app/data/extracted:/app/app/data/extracted
+      - ./backend/app/data/ground_truth:/app/app/data/ground_truth
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+volumes:
+  pgdata:
+  ollama_data:

@@ -27,6 +27,8 @@ app/data/cache/*
 !app/data/cache/.gitkeep
 app/data/extracted/*
 !app/data/extracted/.gitkeep
+app/data/extracted/v2/*
+!app/data/extracted/v2/.gitkeep
 
 # Logs
 *.log

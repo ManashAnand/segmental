@@ -1,4 +1,4 @@
-"""POST /upload — store a 10-K PDF and run extraction."""
+"""POST /api/v1/upload — store a 10-K PDF and run V1 extraction."""
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
@@ -24,7 +24,7 @@ async def upload_pdf(
     extraction_service: ExtractionService = Depends(get_extraction_service),
 ) -> UploadResponse:
     """
-    Upload a 10-K PDF to data/pdfs/ and immediately extract financial fields.
+    Upload a 10-K PDF to data/pdfs/ and immediately extract financial fields (V1 pipeline).
 
     Company slug is derived from the filename when omitted.
     Results are merged into data/extracted/results.json.

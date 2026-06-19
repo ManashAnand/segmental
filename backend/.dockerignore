@@ -1,0 +1,19 @@
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.git/
+.env
+.env.*
+
+# Runtime data — mounted as volumes in compose
+app/data/pdfs/*.pdf
+app/data/cache/*
+app/data/extracted/*
+
+*.log

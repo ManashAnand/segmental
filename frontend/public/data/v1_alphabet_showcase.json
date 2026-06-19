@@ -1,0 +1,145 @@
+{
+  "title": "V1 Extraction Evaluation — Alphabet Inc.",
+  "subtitle": "Keyword + regex first-pick vs 10-K ground truth (FY2023)",
+  "pipeline_version": "v1",
+  "extraction_method": "keyword page retrieval + table/text regex (first candidate)",
+  "company_slug": "alphabet",
+  "company_name": "Alphabet Inc.",
+  "source_pdf": "Alphabet_FY24.pdf",
+  "fiscal_year": "2023",
+  "filing_note": "10-K for fiscal year ended December 31, 2023. All amounts in millions USD.",
+  "extraction_file": "4b8e828a_results.json",
+  "tolerance": 0.01,
+  "evaluated_at": "2026-06-19",
+  "summary": {
+    "total_questions": 5,
+    "correct": 1,
+    "incorrect": 4,
+    "accuracy": 0.2,
+    "accuracy_percent": "20%",
+    "assignment_fields_tested": 3,
+    "assignment_fields_correct": 1,
+    "any_match_in_candidates": 3,
+    "v1_supported_questions": 3
+  },
+  "comparison_vs_v2": {
+    "v1_first_pick_accuracy": "1/5 comparable checks (R&D within 1% tolerance)",
+    "v2_alphabet_query_accuracy": "5/5 exact matches via RAG + LLM Q&A"
+  },
+  "results": [
+    {
+      "id": "total_revenue",
+      "category": "bonus",
+      "assignment_field": null,
+      "v1_supported": false,
+      "question": "What were total revenues in 2023 in millions?",
+      "expected": {
+        "label": "Total revenues",
+        "value": 307394,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Consolidated Statements of Income"
+      },
+      "actual": null,
+      "match": false,
+      "relative_error": null,
+      "note": "V1 only extracts geographic, segment, and R&D fields — no ad-hoc Q&A"
+    },
+    {
+      "id": "rnd_expense",
+      "category": "assignment",
+      "assignment_field": "research_and_development_expense",
+      "v1_supported": true,
+      "question": "What was research and development expense in 2023 in millions?",
+      "expected": {
+        "label": "Research and development",
+        "value": 45427,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Consolidated Statements of Income"
+      },
+      "actual": {
+        "label": "First regex candidate (wrong table row)",
+        "value": 45566,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_text": "Table on page 39 — first numeric hit 45,566 (not the R&D expense line)",
+        "top_candidates": [45566, 48955, 50886, 65373, 77248],
+        "any_match_in_candidates": true
+      },
+      "match": true,
+      "relative_error": 0.00306,
+      "note": "Within 1% tolerance but picked from wrong row before the correct 45,427 line"
+    },
+    {
+      "id": "segment_revenue",
+      "category": "assignment",
+      "assignment_field": "segment_revenue",
+      "v1_supported": true,
+      "question": "What was Google Services revenue in 2023 in millions?",
+      "expected": {
+        "label": "Google Services",
+        "value": 272543,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Note 2 — Disaggregated Revenues (largest segment)"
+      },
+      "actual": {
+        "label": "Google Services (2021 column)",
+        "value": 237529,
+        "unit": "millions",
+        "fiscal_year": "2021",
+        "source_text": "Google Services $ 237,529 $ 253,528 $ 272,543",
+        "top_candidates": [237529, 253528, 272543, 19206, 26280],
+        "any_match_in_candidates": true
+      },
+      "match": false,
+      "relative_error": 0.1285,
+      "note": "Correct 272,543 appears as 3rd candidate — first-pick takes oldest fiscal column"
+    },
+    {
+      "id": "geographic_revenue",
+      "category": "assignment",
+      "assignment_field": "geographic_revenue",
+      "v1_supported": true,
+      "question": "What was United States revenue in 2023 in millions?",
+      "expected": {
+        "label": "United States",
+        "value": 146286,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Note 2 — Revenues by geography"
+      },
+      "actual": {
+        "label": "United States (2022 column)",
+        "value": 134814,
+        "unit": "millions",
+        "fiscal_year": "2022",
+        "source_text": "134,814 from geography table on page 38 (first numeric hit)",
+        "top_candidates": [134814, 146286, 146286, 82062, 91038],
+        "any_match_in_candidates": true
+      },
+      "match": false,
+      "relative_error": 0.0784,
+      "note": "Correct 146,286 is 2nd candidate — first-pick grabs prior-year column"
+    },
+    {
+      "id": "net_income",
+      "category": "bonus",
+      "assignment_field": null,
+      "v1_supported": false,
+      "question": "What was net income in 2023 in millions?",
+      "expected": {
+        "label": "Net income",
+        "value": 73795,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Consolidated Statements of Income"
+      },
+      "actual": null,
+      "match": false,
+      "relative_error": null,
+      "note": "V1 only extracts geographic, segment, and R&D fields — no ad-hoc Q&A"
+    }
+  ]
+}

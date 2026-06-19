@@ -1,0 +1,6 @@
+# Docker-only deps (embedding model + Postgres + LLM). Not required for bare-metal V1 dev.
+sentence-transformers>=3.0.0
+psycopg2-binary>=2.9.9
+asyncpg>=0.29.0
+groq>=0.13.0
+httpx>=0.27.0

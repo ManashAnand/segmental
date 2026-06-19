@@ -1,0 +1,143 @@
+{
+  "title": "V2 Agent Evaluation — Alphabet Inc.",
+  "subtitle": "RAG + LLM query responses vs 10-K ground truth (FY2023)",
+  "pipeline_version": "v2",
+  "company_slug": "alphabet",
+  "company_name": "Alphabet Inc.",
+  "source_pdf": "Alphabet_FY24.pdf",
+  "fiscal_year": "2023",
+  "filing_note": "10-K for fiscal year ended December 31, 2023. All amounts in millions USD.",
+  "llm_provider": "auto(groq:llama-3.3-70b-versatile->ollama:llama3.2:3b)",
+  "tolerance": 0.01,
+  "evaluated_at": "2026-06-19",
+  "summary": {
+    "total_questions": 5,
+    "correct": 5,
+    "incorrect": 0,
+    "accuracy": 1.0,
+    "accuracy_percent": "100%",
+    "assignment_fields_tested": 3,
+    "assignment_fields_correct": 3
+  },
+  "comparison_vs_v1": {
+    "v1_first_pick_accuracy_note": "16% across 9 companies (batch script baseline)",
+    "v2_alphabet_query_accuracy": "100% on 5 targeted questions"
+  },
+  "results": [
+    {
+      "id": "total_revenue",
+      "category": "bonus",
+      "assignment_field": null,
+      "question": "What were total revenues in 2023 in millions?",
+      "expected": {
+        "label": "Total revenues",
+        "value": 307394,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Consolidated Statements of Income"
+      },
+      "actual": {
+        "answer": "Total revenues in 2023 were $307,394 million",
+        "label": "Total revenues",
+        "value": 307394,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_text": "Total revenues $ 282,836 $ 307,394"
+      },
+      "match": true,
+      "relative_error": 0.0
+    },
+    {
+      "id": "rnd_expense",
+      "category": "assignment",
+      "assignment_field": "research_and_development_expense",
+      "question": "What was research and development expense in 2023 in millions?",
+      "expected": {
+        "label": "Research and development",
+        "value": 45427,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Consolidated Statements of Income"
+      },
+      "actual": {
+        "answer": "Research and development expense in 2023 was $45,427 million",
+        "label": "Research and development expenses",
+        "value": 45427,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_text": "Research and development expenses $ 39,500 $ 45,427"
+      },
+      "match": true,
+      "relative_error": 0.0
+    },
+    {
+      "id": "segment_revenue",
+      "category": "assignment",
+      "assignment_field": "segment_revenue",
+      "question": "What was Google Services revenue in 2023 in millions?",
+      "expected": {
+        "label": "Google Services",
+        "value": 272543,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Note 2 — Disaggregated Revenues (largest segment)"
+      },
+      "actual": {
+        "answer": "Google Services revenue in 2023 was $272,543 million",
+        "label": "Google Services total",
+        "value": 272543,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_text": "Google Services total 253,528 272,543"
+      },
+      "match": true,
+      "relative_error": 0.0
+    },
+    {
+      "id": "geographic_revenue",
+      "category": "assignment",
+      "assignment_field": "geographic_revenue",
+      "question": "What was United States revenue in 2023 in millions?",
+      "expected": {
+        "label": "United States",
+        "value": 146286,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Note 2 — Revenues by geography"
+      },
+      "actual": {
+        "answer": "United States revenue in 2023",
+        "label": "United States",
+        "value": 146286,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_text": "United States $ 117,854 46 % $ 134,814 48 % $ 146,286 47 %"
+      },
+      "match": true,
+      "relative_error": 0.0
+    },
+    {
+      "id": "net_income",
+      "category": "bonus",
+      "assignment_field": null,
+      "question": "What was net income in 2023 in millions?",
+      "expected": {
+        "label": "Net income",
+        "value": 73795,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_hint": "Consolidated Statements of Income"
+      },
+      "actual": {
+        "answer": "Net income in 2023 was $73,795 million",
+        "label": "Net income",
+        "value": 73795,
+        "unit": "millions",
+        "fiscal_year": "2023",
+        "source_text": "Net income $ 76,033 $ 59,972 $ 73,795"
+      },
+      "match": true,
+      "relative_error": 0.0
+    }
+  ]
+}

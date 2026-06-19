@@ -11,8 +11,9 @@ from app.schemas.extraction import ExtractRequest, ExtractResponse, ExtractionRe
 from app.services.evaluation.numbers import best_guess_number
 from app.services.extraction.interface import ExtractionServiceInterface
 from app.services.extraction.parsers import extract_table_hits, extract_text_hits
+from app.services.ingest.service import IngestService
 from app.services.pdf_extraction.service import PDFExtractionService
-from app.services.retrieval.service import RetrievalService
+from app.services.retrieval.composite import CompositeRetrievalService
 from app.utils.config import get_settings
 from app.utils.files import ensure_dir, slugify_company
 
@@ -23,10 +24,12 @@ class ExtractionService(ExtractionServiceInterface):
     def __init__(
         self,
         pdf_service: PDFExtractionService,
-        retrieval_service: RetrievalService,
+        retrieval_service: CompositeRetrievalService,
+        ingest_service: IngestService,
     ) -> None:
         self.pdf_service = pdf_service
         self.retrieval_service = retrieval_service
+        self.ingest_service = ingest_service
         self.settings = get_settings()
         self.extracted_dir = ensure_dir(self.settings.extracted_dir)
 
@@ -51,6 +54,12 @@ class ExtractionService(ExtractionServiceInterface):
             slug = slugify_company(company)
             pages = await self.pdf_service.extract_pages(slug, use_cache=request.use_cache)
             pdf_path = self.pdf_service.pdf_path_for(slug)
+            await self.ingest_service.ensure_indexed(
+                slug,
+                pdf_path,
+                pages,
+                force=not request.use_cache,
+            )
             company_results: dict[str, list[dict]] = {}
 
             for field in ExtractionField:
