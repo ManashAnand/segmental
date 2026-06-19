@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 const nav = [
   { href: "/", label: "Dashboard" },
   { href: "/agent", label: "Agent" },
+  { href: "/compare", label: "Compare" },
 ];
 
 export function AppHeader() {
@@ -39,13 +40,15 @@ export function AppHeader() {
 
         <nav className="flex items-center gap-1 rounded-xl border border-border/60 bg-card/40 p-1">
           {nav.map((item) => {
-            const active = pathname === item.href;
+            const active =
+              pathname === item.href ||
+              (item.href !== "/" && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "relative rounded-lg px-4 py-1.5 text-sm font-medium transition-colors",
+                  "relative rounded-lg px-3 py-1.5 text-sm font-medium transition-colors sm:px-4",
                   active
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
