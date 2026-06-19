@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pdfplumber
 
+from app.services.evaluation.numbers import filter_raw_tokens
+
 NUMBER_PATTERN = re.compile(r"\(?\$?[\d,]+(?:\.\d+)?\)?")
 
 FIELD_LINE_TERMS: dict[str, list[str]] = {
@@ -37,8 +39,24 @@ FIELD_LINE_TERMS: dict[str, list[str]] = {
 }
 
 
+def _line_for_number_extraction(line: str) -> str | None:
+    """
+    Prepare a line for number extraction.
+
+    Returns None when the line should be skipped entirely (pure percentage rows).
+    Strips trailing growth-rate text after '%' on mixed financial lines.
+    """
+    lower = line.lower()
+    if "percentage" in lower and "$" not in line:
+        return None
+    if "%" in line:
+        return line.split("%", 1)[0]
+    return line
+
+
 def extract_numbers_from_text(text: str) -> list[str]:
-    return NUMBER_PATTERN.findall(text)
+    raw = NUMBER_PATTERN.findall(text)
+    return filter_raw_tokens(raw)
 
 
 def extract_text_hits(text: str, field: str) -> list[dict]:
@@ -49,7 +67,10 @@ def extract_text_hits(text: str, field: str) -> list[dict]:
         lower = line.lower()
         if not any(term in lower for term in terms):
             continue
-        numbers = extract_numbers_from_text(line)
+        extractable = _line_for_number_extraction(line)
+        if extractable is None:
+            continue
+        numbers = extract_numbers_from_text(extractable)
         if numbers:
             hits.append({"line": line.strip(), "numbers": numbers})
     return hits
@@ -67,7 +88,12 @@ def extract_table_hits(pdf_path: Path, page_number: int) -> list[dict]:
             for row in table:
                 for cell in row or []:
                     if cell:
-                        numbers.extend(extract_numbers_from_text(str(cell)))
+                        cell_text = str(cell)
+                        if "%" in cell_text and "$" not in cell_text and "percentage" in cell_text.lower():
+                            continue
+                        extractable = cell_text.split("%", 1)[0] if "%" in cell_text else cell_text
+                        numbers.extend(extract_numbers_from_text(extractable))
+            numbers = filter_raw_tokens(numbers)
             if numbers:
                 hits.append({"numbers": numbers})
     return hits
