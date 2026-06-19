@@ -1,0 +1,32 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Generated runtime data
+app/data/pdfs/*.pdf
+app/data/cache/*
+!app/data/cache/.gitkeep
+app/data/extracted/*
+!app/data/extracted/.gitkeep
+
+# Logs
+*.log
