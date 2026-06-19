@@ -16,6 +16,12 @@ class MetricField(BaseModel):
     source_text: str | None = None
 
 
+class RetrievedChunkSummary(BaseModel):
+    page_number: int
+    score: float
+    snippet: str
+
+
 class QueryAnswer(BaseModel):
     answer: str = "No answer could be determined from the retrieved context."
     label: str | None = None
@@ -27,6 +33,7 @@ class QueryAnswer(BaseModel):
     llm_provider: str | None = None
     retrieval_scores: list[float] = Field(default_factory=list)
     chunks_used: int = 0
+    retrieved_chunks: list[RetrievedChunkSummary] = Field(default_factory=list)
 
 
 class FilingExtractionAnswer(BaseModel):

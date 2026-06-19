@@ -50,3 +50,12 @@ class V2ExtractResponse(BaseModel):
     company: str
     llm_provider: str
     extraction: FilingExtractionAnswer
+
+
+class CompanyInfoResponse(BaseModel):
+    company: str
+    pdf_available: bool
+    indexed: bool
+    page_count: int
+    chunk_count: int
+    filename: str | None = None

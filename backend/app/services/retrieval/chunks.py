@@ -19,12 +19,34 @@ _FINANCIAL_MARKERS = (
     "million",
     "consolidated",
     "revenue",
+    "net sales",
+    "sales",
     "research and development",
     "net income",
     "year ended december",
     "segment",
     "geographic",
     "americas",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "quarter",
+    "quarterly",
+    "month",
+    "monthly",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
 )
 
 
@@ -45,7 +67,7 @@ class ChunkRetrievalService:
 
         slug = slugify_company(company)
         limit = top_k or self.settings.retrieval_top_k
-        fetch_limit = min(limit * 3, 30)
+        fetch_limit = min(limit * 3, 45)
         query_embedding = await self.embedding_service.encode_one(query)
 
         async with pool.acquire() as conn:

@@ -12,6 +12,9 @@ export function DocumentSidebar() {
   const docs = useAppStore((s) => s.documents);
   const selectedId = useAppStore((s) => s.selectedDocId);
   const select = useAppStore((s) => s.selectDocument);
+  const queryCountByDocId = useAppStore((s) => s.queryCountByDocId);
+  const lastQueryLabelByDocId = useAppStore((s) => s.lastQueryLabelByDocId);
+  const companyInfoBySlug = useAppStore((s) => s.companyInfoBySlug);
   const [q, setQ] = useState("");
 
   const filtered = docs.filter(
@@ -45,6 +48,12 @@ export function DocumentSidebar() {
       <div className="flex-1 space-y-1 overflow-y-auto p-2">
         {filtered.map((d) => {
           const active = d.id === selectedId;
+          const queryCount = queryCountByDocId[d.id] ?? 0;
+          const lastLabel = lastQueryLabelByDocId[d.id];
+          const info = companyInfoBySlug[d.companySlug];
+          const indexed = info?.indexed ?? (d.chunksIndexed ?? 0) > 0;
+          const pdfReady = info?.pdf_available;
+
           return (
             <motion.button
               key={d.id}
@@ -71,8 +80,14 @@ export function DocumentSidebar() {
                   <p className="truncate text-[11px] text-muted-foreground">
                     {d.fieldsExtracted} fields ·{" "}
                     {(d.confidence * 100).toFixed(0)}% conf.
+                    {queryCount > 0 && ` · ${queryCount} queries`}
                   </p>
-                  <div className="mt-2 flex items-center gap-1.5">
+                  {lastLabel && (
+                    <p className="mt-1 truncate text-[10px] text-primary/80">
+                      Latest: {lastLabel}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span
                       className={`h-1.5 w-1.5 rounded-full ${
                         d.status === "processed"
@@ -85,6 +100,21 @@ export function DocumentSidebar() {
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                       {d.status}
                     </span>
+                    {pdfReady === true && (
+                      <span className="rounded bg-success/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-success">
+                        PDF
+                      </span>
+                    )}
+                    {pdfReady === false && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                        No PDF
+                      </span>
+                    )}
+                    {indexed && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-primary">
+                        Indexed
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -105,7 +135,7 @@ export function DocumentSidebar() {
           <div className="min-w-0">
             <p className="text-xs font-medium">AI Analyst Pro</p>
             <p className="truncate text-[10px] text-muted-foreground">
-              Unlimited extractions
+              Query indexed 10-K filings
             </p>
           </div>
         </div>

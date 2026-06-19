@@ -14,9 +14,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Globe2, Layers, Beaker, Activity } from "lucide-react";
+import {
+  Globe2,
+  Layers,
+  Beaker,
+  Activity,
+  Sparkles,
+  MessageSquare,
+} from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { useAppStore } from "@/lib/store";
+import { useAppStore, useSelectedDocument } from "@/lib/store";
 import {
   accuracyTrend,
   metricsForDoc,
@@ -32,15 +39,22 @@ const tooltipStyle = {
 };
 
 export function InsightsPanel() {
-  const selectedId = useAppStore((s) => s.selectedDocId);
-  const metrics = selectedId ? metricsForDoc(selectedId) : null;
+  const doc = useSelectedDocument();
+  const liveMetricsBySlug = useAppStore((s) => s.liveMetricsBySlug);
+  const queryCountByDocId = useAppStore((s) => s.queryCountByDocId);
+
+  const mockMetricsData = doc ? metricsForDoc(doc.id) : null;
+  const liveMetrics = doc ? (liveMetricsBySlug[doc.companySlug] ?? []) : [];
+  const queryCount = doc ? (queryCountByDocId[doc.id] ?? 0) : 0;
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border/60 bg-sidebar/40">
       <div className="border-b border-border/60 p-4">
         <h2 className="text-sm font-semibold">Financial Insights</h2>
         <p className="text-[11px] text-muted-foreground">
-          {metrics ? `${metrics.company} · ${metrics.ticker}` : "Select a document"}
+          {doc
+            ? `${doc.company} · ${queryCount} ${queryCount === 1 ? "query" : "queries"}`
+            : "Select a document"}
         </p>
       </div>
 
@@ -55,60 +69,123 @@ export function InsightsPanel() {
         </TabsList>
 
         <TabsContent value="metrics" className="flex-1 overflow-y-auto p-3">
-          {metrics ? (
-            <div className="space-y-3">
-              <InsightCard icon={Globe2} label="Revenue by Geography" tint="from-chart-2/20">
-                <div className="space-y-1.5">
-                  {metrics.geo.map((g, i) => (
-                    <BarRow
-                      key={g.region}
-                      label={g.region}
-                      value={g.value}
-                      max={Math.max(...metrics.geo.map((x) => x.value))}
-                      delay={i * 0.04}
-                    />
-                  ))}
-                </div>
-              </InsightCard>
-
-              <InsightCard icon={Layers} label="Revenue by Segment" tint="from-chart-1/20">
-                <div className="space-y-1.5">
-                  {metrics.segments.map((s, i) => (
-                    <BarRow
-                      key={s.segment}
-                      label={s.segment}
-                      value={s.value}
-                      max={Math.max(...metrics.segments.map((x) => x.value))}
-                      delay={i * 0.04}
-                      accent
-                    />
-                  ))}
-                </div>
-              </InsightCard>
-
-              <InsightCard icon={Beaker} label="R&D Expense" tint="from-chart-3/20">
-                <div className="flex items-end justify-between">
-                  <div>
-                    <div className="text-3xl font-semibold tracking-tight">
-                      ${(metrics.rdExpense / 1000).toFixed(1)}B
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {((metrics.rdExpense / metrics.totalRevenue) * 100).toFixed(1)}%
-                      of revenue
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-success">+12.4% YoY</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      vs prior year
-                    </div>
-                  </div>
-                </div>
-              </InsightCard>
-            </div>
-          ) : (
+          {!doc ? (
             <div className="grid h-full place-items-center text-xs text-muted-foreground">
               No document selected
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {liveMetrics.length > 0 && (
+                <InsightCard
+                  icon={Sparkles}
+                  label="From Agent Queries"
+                  tint="from-primary/20"
+                >
+                  <div className="space-y-2">
+                    {liveMetrics.map((metric, i) => (
+                      <motion.div
+                        key={metric.id}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.04 }}
+                        className="rounded-lg border border-border/60 bg-background/40 p-3"
+                      >
+                        <div className="mb-1 flex items-start justify-between gap-2">
+                          <span className="text-xs font-medium">{metric.label}</span>
+                          <span className="shrink-0 font-mono text-xs text-primary">
+                            {metric.value != null
+                              ? `${metric.value.toLocaleString()}${metric.unit ? ` ${metric.unit}` : ""}`
+                              : "—"}
+                          </span>
+                        </div>
+                        <p className="line-clamp-2 text-[10px] text-muted-foreground">
+                          {metric.question}
+                        </p>
+                        {metric.fiscalYear && (
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            FY {metric.fiscalYear} ·{" "}
+                            {(metric.confidence * 100).toFixed(0)}% confidence
+                          </p>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                </InsightCard>
+              )}
+
+              {liveMetrics.length === 0 && (
+                <div className="glow-card flex flex-col items-center justify-center p-6 text-center">
+                  <MessageSquare className="mb-2 h-6 w-6 text-muted-foreground/50" />
+                  <p className="text-xs text-muted-foreground">
+                    Ask the agent a question to populate live metrics here.
+                  </p>
+                </div>
+              )}
+
+              {mockMetricsData && (
+                <>
+                  <InsightCard
+                    icon={Globe2}
+                    label="Revenue by Geography"
+                    tint="from-chart-2/20"
+                  >
+                    <div className="space-y-1.5">
+                      {mockMetricsData.geo.map((g, i) => (
+                        <BarRow
+                          key={g.region}
+                          label={g.region}
+                          value={g.value}
+                          max={Math.max(...mockMetricsData.geo.map((x) => x.value))}
+                          delay={i * 0.04}
+                        />
+                      ))}
+                    </div>
+                  </InsightCard>
+
+                  <InsightCard
+                    icon={Layers}
+                    label="Revenue by Segment"
+                    tint="from-chart-1/20"
+                  >
+                    <div className="space-y-1.5">
+                      {mockMetricsData.segments.map((s, i) => (
+                        <BarRow
+                          key={s.segment}
+                          label={s.segment}
+                          value={s.value}
+                          max={Math.max(
+                            ...mockMetricsData.segments.map((x) => x.value),
+                          )}
+                          delay={i * 0.04}
+                          accent
+                        />
+                      ))}
+                    </div>
+                  </InsightCard>
+
+                  <InsightCard
+                    icon={Beaker}
+                    label="R&D Expense"
+                    tint="from-chart-3/20"
+                  >
+                    <div className="flex items-end justify-between">
+                      <div>
+                        <div className="text-3xl font-semibold tracking-tight">
+                          ${(mockMetricsData.rdExpense / 1000).toFixed(1)}B
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {(
+                            (mockMetricsData.rdExpense /
+                              mockMetricsData.totalRevenue) *
+                            100
+                          ).toFixed(1)}
+                          % of revenue
+                        </p>
+                      </div>
+                    </div>
+                  </InsightCard>
+                </>
+              )}
             </div>
           )}
         </TabsContent>

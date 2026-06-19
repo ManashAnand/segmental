@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Search,
@@ -15,6 +15,8 @@ import {
   FileText,
   Paperclip,
   Maximize2,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,23 +25,140 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useAppStore } from "@/lib/store";
-import { metricsForDoc, type DocMetrics } from "@/lib/mock-data";
-import type { UploadedDoc } from "@/lib/mock-data";
+import { companyPdfUrl, fetchCompanyPdfBlob, getCompanyInfo } from "@/lib/api";
+import { useAppStore, useSelectedDocument } from "@/lib/store";
 
 type Tab = "files" | "checklist" | "form";
 
 export function PdfViewer() {
   const docs = useAppStore((s) => s.documents);
-  const selectedId = useAppStore((s) => s.selectedDocId);
   const select = useAppStore((s) => s.selectDocument);
+  const pdfPage = useAppStore((s) => s.pdfPage);
+  const pdfTargetPage = useAppStore((s) => s.pdfTargetPage);
+  const setPdfPage = useAppStore((s) => s.setPdfPage);
+  const clearPdfTargetPage = useAppStore((s) => s.clearPdfTargetPage);
+  const companyInfoBySlug = useAppStore((s) => s.companyInfoBySlug);
+  const setCompanyInfo = useAppStore((s) => s.setCompanyInfo);
+  const doc = useSelectedDocument();
   const [tab, setTab] = useState<Tab>("files");
-  const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(110);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [infoError, setInfoError] = useState<string | null>(null);
 
-  const doc = docs.find((d) => d.id === selectedId) ?? docs[0];
-  const metrics = doc ? metricsForDoc(doc.id) : null;
-  const totalPages = 12;
+  const info = doc ? companyInfoBySlug[doc.companySlug] : undefined;
+  const totalPages = info?.page_count ?? 1;
+  const pdfAvailable = info?.pdf_available ?? false;
+  const indexed = info?.indexed ?? false;
+
+  useEffect(() => {
+    if (!doc?.companySlug) return;
+
+    const cached = useAppStore.getState().companyInfoBySlug[doc.companySlug];
+    if (cached) return;
+
+    let cancelled = false;
+    setLoadingInfo(true);
+    setInfoError(null);
+
+    getCompanyInfo(doc.companySlug)
+      .then((result) => {
+        if (!cancelled) setCompanyInfo(doc.companySlug, result);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setInfoError(
+            error instanceof Error ? error.message : "Failed to load filing info",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingInfo(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [doc?.companySlug, setCompanyInfo]);
+
+  useEffect(() => {
+    if (!doc?.companySlug || !pdfAvailable) {
+      setPdfBlobUrl(null);
+      setPdfError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setLoadingPdf(true);
+    setPdfError(null);
+    setPdfBlobUrl(null);
+
+    fetchCompanyPdfBlob(doc.companySlug)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPdfBlobUrl(objectUrl);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPdfError(
+            error instanceof Error ? error.message : "Failed to load PDF",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPdf(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setPdfBlobUrl((current) => {
+        if (current && current !== objectUrl) URL.revokeObjectURL(current);
+        return null;
+      });
+    };
+  }, [doc?.companySlug, pdfAvailable]);
+
+  useEffect(() => {
+    if (pdfTargetPage != null) {
+      setPdfPage(pdfTargetPage);
+      clearPdfTargetPage();
+    }
+  }, [pdfTargetPage, setPdfPage, clearPdfTargetPage]);
+
+  useEffect(() => {
+    if (pdfPage > totalPages) {
+      setPdfPage(totalPages);
+    }
+  }, [pdfPage, totalPages, setPdfPage]);
+
+  const iframeSrc = pdfBlobUrl ? `${pdfBlobUrl}#page=${pdfPage}` : null;
+
+  const handleDownload = async () => {
+    if (!doc) return;
+    try {
+      if (pdfBlobUrl) {
+        const anchor = document.createElement("a");
+        anchor.href = pdfBlobUrl;
+        anchor.download = doc.fileName;
+        anchor.click();
+        return;
+      }
+      const blob = await fetchCompanyPdfBlob(doc.companySlug);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = doc.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(companyPdfUrl(doc.companySlug), "_blank", "noopener,noreferrer");
+    }
+  };
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -137,20 +256,22 @@ export function PdfViewer() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => setPdfPage(Math.max(1, pdfPage - 1))}
+            disabled={!pdfAvailable}
           >
             <ChevronUp className="h-3.5 w-3.5" />
           </Button>
           <div className="flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs">
             <input
               type="number"
-              value={page}
+              value={pdfPage}
               onChange={(e) =>
-                setPage(
+                setPdfPage(
                   Math.min(totalPages, Math.max(1, Number(e.target.value) || 1)),
                 )
               }
               className="w-8 bg-transparent text-center outline-none tabular-nums"
+              disabled={!pdfAvailable}
             />
             <span className="text-muted-foreground">/ {totalPages}</span>
           </div>
@@ -158,7 +279,8 @@ export function PdfViewer() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => setPdfPage(Math.min(totalPages, pdfPage + 1))}
+            disabled={!pdfAvailable}
           >
             <ChevronDown className="h-3.5 w-3.5" />
           </Button>
@@ -188,9 +310,16 @@ export function PdfViewer() {
           <Button variant="ghost" size="icon" className="hidden h-7 w-7 sm:inline-flex">
             <Maximize2 className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7">
-            <Download className="h-3.5 w-3.5" />
-          </Button>
+          {doc && pdfAvailable && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void handleDownload()}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="hidden h-7 w-7 sm:inline-flex">
             <Printer className="h-3.5 w-3.5" />
           </Button>
@@ -202,173 +331,124 @@ export function PdfViewer() {
 
       <div className="flex-1 overflow-auto bg-muted/30 p-4 sm:p-6">
         {tab === "files" && doc && (
-          <FilesView doc={doc} zoom={zoom} page={page} metrics={metrics} />
+          <FilesView
+            docName={doc.company}
+            ticker={doc.ticker}
+            iframeSrc={iframeSrc}
+            zoom={zoom}
+            loading={loadingInfo || loadingPdf}
+            error={infoError ?? pdfError}
+            pdfAvailable={pdfAvailable}
+            indexed={indexed}
+            chunkCount={info?.chunk_count ?? doc.chunksIndexed ?? 0}
+          />
         )}
-        {tab === "checklist" && <ChecklistView />}
-        {tab === "form" && <FormView doc={doc} />}
+        {tab === "checklist" && (
+          <ChecklistView indexed={indexed} pdfAvailable={pdfAvailable} />
+        )}
+        {tab === "form" && doc && <FormView doc={doc} indexed={indexed} />}
       </div>
     </div>
   );
 }
 
 function FilesView({
-  doc,
+  docName,
+  ticker,
+  iframeSrc,
   zoom,
-  page,
-  metrics,
+  loading,
+  error,
+  pdfAvailable,
+  indexed,
+  chunkCount,
 }: {
-  doc: UploadedDoc;
+  docName: string;
+  ticker: string;
+  iframeSrc: string | null;
   zoom: number;
-  page: number;
-  metrics: DocMetrics | null;
+  loading: boolean;
+  error: string | null;
+  pdfAvailable: boolean;
+  indexed: boolean;
+  chunkCount: number;
 }) {
-  return (
-    <motion.div
-      key={`${doc.id}-${page}`}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mx-auto rounded-md bg-white text-zinc-900 shadow-2xl ring-1 ring-black/10"
-      style={{ width: `${(zoom / 100) * 720}px`, maxWidth: "100%" }}
-    >
-      <div className="p-6 sm:p-10">
-        <div className="mb-8 flex flex-col gap-4 border-b border-zinc-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-              United States
-            </div>
-            <div className="text-xs font-semibold text-zinc-700">
-              Securities and Exchange Commission
-            </div>
-          </div>
-          <div className="text-left sm:text-right">
-            <div className="text-2xl font-bold tracking-tight">FORM 10-K</div>
-            <div className="text-[10px] text-zinc-500">
-              Annual Report · Fiscal Year {new Date().getFullYear() - 1}
-            </div>
-          </div>
-        </div>
-
-        <h1 className="mb-1 text-2xl font-bold tracking-tight sm:text-3xl">
-          {doc.company}
-        </h1>
-        <p className="mb-6 text-sm text-zinc-600">
-          (Exact name of Registrant as specified in its charter) · Ticker:{" "}
-          <span className="font-mono font-semibold">{doc.ticker}</span>
-        </p>
-
-        <div className="mb-6 overflow-x-auto rounded border border-zinc-200">
-          <table className="w-full min-w-[320px] text-xs">
-            <tbody className="divide-y divide-zinc-200">
-              <tr>
-                <td className="bg-zinc-50 px-3 py-2 font-medium" colSpan={2}>
-                  Company Details — Page {page}
-                </td>
-              </tr>
-              <tr>
-                <td className="w-1/2 px-3 py-2 text-zinc-600">a. Registrant Name</td>
-                <td className="px-3 py-2 font-medium">{doc.company.toUpperCase()}</td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 text-zinc-600">b. Ticker Symbol</td>
-                <td className="px-3 py-2 font-mono">{doc.ticker}</td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 text-zinc-600">c. Total Revenue</td>
-                <td className="px-3 py-2">
-                  {metrics ? `$${(metrics.totalRevenue / 1000).toFixed(2)}B` : "—"}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 text-zinc-600">d. R&D Expense</td>
-                <td className="px-3 py-2">
-                  {metrics ? `$${(metrics.rdExpense / 1000).toFixed(2)}B` : "—"}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 text-zinc-600">e. Fiscal Year End</td>
-                <td className="px-3 py-2">
-                  December 31, {new Date().getFullYear() - 1}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 text-zinc-600">f. Filed With</td>
-                <td className="px-3 py-2">SEC EDGAR</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {metrics && (
-          <div className="mb-6 overflow-x-auto">
-            <h3 className="mb-2 text-sm font-semibold">
-              Revenue by Geographic Segment
-            </h3>
-            <table className="w-full min-w-[360px] border border-zinc-200 text-xs">
-              <thead className="bg-zinc-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-zinc-600">
-                    Region
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-zinc-600">
-                    FY (in $M)
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-zinc-600">
-                    % of Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200">
-                {metrics.geo.map((g) => (
-                  <tr key={g.region}>
-                    <td className="px-3 py-2">{g.region}</td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {g.value.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-zinc-600">
-                      {((g.value / metrics.totalRevenue) * 100).toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <p className="text-xs leading-relaxed text-zinc-600">
-          The information contained in Item 7 of this Form 10-K is intended to
-          provide a narrative discussion of the Registrant&apos;s financial condition
-          and results of operations as required under SEC regulations.
-          Forward-looking statements are subject to risks and uncertainties...
-        </p>
-
-        <div className="mt-8 flex items-center justify-between border-t border-zinc-200 pt-3 text-[10px] text-zinc-400">
-          <span>{doc.fileName}</span>
-          <span>
-            Page {page} of {12}
-          </span>
+  if (loading) {
+    return (
+      <div className="grid h-full min-h-[320px] place-items-center text-muted-foreground">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <p className="text-sm">Loading filing...</p>
         </div>
       </div>
+    );
+  }
+
+  if (error || !pdfAvailable) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-8 text-center">
+        <AlertCircle className="mb-3 h-8 w-8 text-warning" />
+        <h3 className="text-sm font-semibold">PDF not available</h3>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {error ??
+            `${docName} has not been uploaded to the backend yet. Upload this 10-K from the dashboard to view and query it.`}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      key={ticker}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mx-auto flex h-full min-h-[480px] max-w-4xl flex-col overflow-hidden rounded-md bg-background shadow-2xl ring-1 ring-border"
+      style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center" }}
+    >
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-4 py-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-primary">
+            {ticker}
+          </span>
+          <span className="text-muted-foreground">{docName}</span>
+        </div>
+        <span className="text-muted-foreground">
+          {indexed ? `${chunkCount} chunks indexed` : "Not indexed"}
+        </span>
+      </div>
+      {iframeSrc ? (
+        <iframe
+          title={`${docName} 10-K PDF`}
+          src={iframeSrc}
+          className="min-h-[520px] w-full flex-1 border-0 bg-white"
+        />
+      ) : (
+        <div className="grid min-h-[520px] flex-1 place-items-center bg-muted/20 text-xs text-muted-foreground">
+          Preparing PDF viewer...
+        </div>
+      )}
     </motion.div>
   );
 }
 
-function ChecklistView() {
+function ChecklistView({
+  indexed,
+  pdfAvailable,
+}: {
+  indexed: boolean;
+  pdfAvailable: boolean;
+}) {
   const items = [
-    { label: "Business overview extracted", done: true },
-    { label: "Risk factors section parsed", done: true },
-    { label: "MD&A financial commentary", done: true },
-    { label: "Income statement extracted", done: true },
-    { label: "Balance sheet extracted", done: true },
-    { label: "Cash flow statement extracted", done: true },
-    { label: "Segment reporting validated", done: true },
-    { label: "Geographic revenue extracted", done: true },
-    { label: "R&D expense extracted", done: true },
-    { label: "Auditor's report cross-checked", done: false },
-    { label: "Exhibits & schedules indexed", done: false },
+    { label: "PDF uploaded to backend", done: pdfAvailable },
+    { label: "Pages extracted and chunked", done: indexed },
+    { label: "Embeddings indexed in pgvector", done: indexed },
+    { label: "Ready for agent queries", done: indexed && pdfAvailable },
+    { label: "Assignment metrics available via chat", done: indexed },
   ];
+
   return (
     <div className="mx-auto max-w-2xl space-y-2">
-      <h3 className="mb-3 text-sm font-semibold">Extraction Checklist</h3>
+      <h3 className="mb-3 text-sm font-semibold">Indexing Checklist</h3>
       {items.map((it) => (
         <div
           key={it.label}
@@ -399,30 +479,37 @@ function ChecklistView() {
   );
 }
 
-function FormView({ doc }: { doc: UploadedDoc | undefined }) {
+function FormView({
+  doc,
+  indexed,
+}: {
+  doc: { company: string; ticker: string; fileName: string; uploadedAt: string };
+  indexed: boolean;
+}) {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="glow-card p-6">
         <h3 className="mb-1 text-sm font-semibold">Filing Metadata</h3>
         <p className="mb-4 text-xs text-muted-foreground">
-          Auto-extracted from cover page
+          Loaded from backend storage
         </p>
         <div className="space-y-3">
           {[
             ["Filing Type", "10-K Annual Report"],
-            ["Registrant", doc?.company ?? "—"],
-            ["Ticker", doc?.ticker ?? "—"],
-            ["Filing Date", `December 31, ${new Date().getFullYear() - 1}`],
-            ["State of Incorporation", "Delaware"],
-            ["Filed With", "SEC EDGAR"],
-            ["Auditor", "Independent Registered Public Accounting Firm"],
+            ["Registrant", doc.company],
+            ["Ticker", doc.ticker],
+            ["Filename", doc.fileName],
+            ["Uploaded", new Date(doc.uploadedAt).toLocaleString()],
+            ["Indexed", indexed ? "Yes" : "No"],
           ].map(([k, v]) => (
             <div
               key={k}
               className="flex items-center justify-between border-b border-border/40 pb-2 text-sm last:border-0"
             >
               <span className="text-muted-foreground">{k}</span>
-              <span className="font-mono text-right text-xs sm:text-sm">{v}</span>
+              <span className="max-w-[60%] truncate font-mono text-right text-xs sm:text-sm">
+                {v}
+              </span>
             </div>
           ))}
         </div>

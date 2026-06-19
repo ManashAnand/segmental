@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import {
@@ -22,118 +22,79 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useAppStore, type ChatMessage } from "@/lib/store";
-import { suggestedPrompts, metricsForDoc } from "@/lib/mock-data";
+import { queryFiling } from "@/lib/api";
+import {
+  useAppStore,
+  useSelectedDocument,
+  type ChatMessage,
+} from "@/lib/store";
+import type { V2QueryResponse } from "@/lib/types";
 
-function buildResponse(
-  prompt: string,
-  docId: string | null,
-): { content: string; tool: NonNullable<ChatMessage["tool"]> } {
-  const metrics = docId ? metricsForDoc(docId) : null;
-  const p = prompt.toLowerCase();
-  let content = "";
-  let extracted: { label: string; value: string }[] = [];
+function formatAnswerMarkdown(response: V2QueryResponse): string {
+  const { answer } = response;
+  if (answer.value != null && answer.label) {
+    const unit = answer.unit ? ` ${answer.unit}` : "";
+    const year = answer.fiscal_year ? ` · ${answer.fiscal_year}` : "";
+    return (
+      `### ${answer.label}\n\n` +
+      `**${answer.value.toLocaleString()}**${unit}${year}\n\n` +
+      answer.answer
+    );
+  }
+  return answer.answer;
+}
 
-  if (p.includes("geographic") || p.includes("geography") || p.includes("region")) {
-    if (metrics) {
-      content =
-        `### Geographic Revenue — ${metrics.company}\n\nBased on the FY filing:\n\n` +
-        metrics.geo
-          .map((g) => `- **${g.region}**: $${(g.value / 1000).toFixed(1)}B`)
-          .join("\n") +
-        `\n\nTotal: **$${(metrics.totalRevenue / 1000).toFixed(1)}B**.`;
-      extracted = metrics.geo.map((g) => ({
-        label: g.region,
-        value: `$${(g.value / 1000).toFixed(2)}B`,
-      }));
-    }
-  } else if (p.includes("r&d") || p.includes("research")) {
-    content =
-      `### R&D Spend Comparison\n\n` +
-      `- Apple: **$31.4B**\n- Amazon: **$85.6B**\n- Meta: **$38.5B**\n- Microsoft: **$29.5B**\n- Alphabet: **$45.4B**\n\n` +
-      `Amazon leads in absolute R&D spend; Meta has the highest R&D as a % of revenue.`;
-    extracted = [
-      { label: "Highest absolute", value: "Amazon — $85.6B" },
-      { label: "Highest % of revenue", value: "Meta — 28.5%" },
-    ];
-  } else if (p.includes("segment")) {
-    content =
-      `### Largest Segment Revenue\n\n` +
-      `**Apple — iPhone** generates **$200.6B**, the single largest reported product segment across uploaded filings.\n\nRunner-up: **Google Search — $175.0B**.`;
-    extracted = [
-      { label: "Top segment", value: "iPhone — $200.6B" },
-      { label: "2nd", value: "Google Search — $175.0B" },
-    ];
-  } else if (p.includes("metric") || p.includes("show all")) {
-    if (metrics) {
-      content =
-        `### Extracted Metrics — ${metrics.company}\n\n` +
-        `- **Total revenue**: $${(metrics.totalRevenue / 1000).toFixed(1)}B\n` +
-        `- **R&D expense**: $${(metrics.rdExpense / 1000).toFixed(1)}B\n` +
-        `- **Geographic segments**: ${metrics.geo.length}\n` +
-        `- **Business segments**: ${metrics.segments.length}`;
-      extracted = [
-        {
-          label: "Total Revenue",
-          value: `$${(metrics.totalRevenue / 1000).toFixed(2)}B`,
-        },
-        {
-          label: "R&D Expense",
-          value: `$${(metrics.rdExpense / 1000).toFixed(2)}B`,
-        },
-      ];
-    }
-  } else {
-    content = `I analyzed the uploaded filings.\n\n${
-      metrics
-        ? `${metrics.company} reported total revenue of **$${(metrics.totalRevenue / 1000).toFixed(1)}B** with R&D of **$${(metrics.rdExpense / 1000).toFixed(1)}B**.`
-        : "Select a document on the left to drill into specifics."
-    }`;
-    if (metrics) {
-      extracted = [
-        {
-          label: "Revenue",
-          value: `$${(metrics.totalRevenue / 1000).toFixed(1)}B`,
-        },
-      ];
-    }
+function buildToolFromResponse(
+  response: V2QueryResponse,
+  ticker: string,
+): NonNullable<ChatMessage["tool"]> {
+  const { answer } = response;
+  const retrievedPages =
+    answer.retrieved_chunks?.map((chunk) => ({
+      doc: ticker,
+      page: chunk.page_number,
+      snippet: chunk.snippet,
+    })) ?? [];
+
+  if (retrievedPages.length === 0 && answer.source_text) {
+    retrievedPages.push({
+      doc: ticker,
+      page: 1,
+      snippet: answer.source_text.slice(0, 240),
+    });
   }
 
+  const extractedValues: { label: string; value: string }[] = [];
+  if (answer.label && answer.value != null) {
+    extractedValues.push({
+      label: answer.label,
+      value: `${answer.value.toLocaleString()}${answer.unit ? ` ${answer.unit}` : ""}`,
+    });
+  }
+
+  const scores = answer.retrieval_scores ?? [];
+  const confidence = scores.length
+    ? scores.reduce((sum, score) => sum + score, 0) / scores.length
+    : 0.55;
+
   return {
-    content,
-    tool: {
-      retrievedPages: [
-        {
-          doc: metrics?.ticker ?? "MULTI",
-          page: 42,
-          snippet:
-            "Net sales by reportable segment for the fiscal years ended...",
-        },
-        {
-          doc: metrics?.ticker ?? "MULTI",
-          page: 58,
-          snippet: "Research and development expense was...",
-        },
-        {
-          doc: metrics?.ticker ?? "MULTI",
-          page: 73,
-          snippet: "Geographic information based on customer location...",
-        },
-      ],
-      extractedValues: extracted,
-      reasoning: [
-        "Identified user intent and matched to financial concept.",
-        "Retrieved relevant 10-K passages using semantic search.",
-        "Cross-validated numbers against extracted segment table.",
-        "Formatted response with normalized USD figures.",
-      ],
-      confidence: 0.92,
-    },
+    retrievedPages,
+    extractedValues,
+    reasoning: [
+      `Matched question to ${response.company} filing corpus.`,
+      `Retrieved ${answer.chunks_used ?? retrievedPages.length} relevant passages via semantic search.`,
+      answer.source_text
+        ? "Extracted value from cited source text in the 10-K."
+        : "Synthesized answer from retrieved filing context.",
+      "Formatted response with fiscal year and units where available.",
+    ],
+    confidence: Math.min(0.99, Math.max(0.35, confidence)),
   };
 }
 
 export function ChatPanel() {
   const [input, setInput] = useState("");
+  const doc = useSelectedDocument();
   const {
     messages,
     addMessage,
@@ -141,9 +102,30 @@ export function ChatPanel() {
     setStreaming,
     appendToLast,
     attachToolToLast,
-    selectedDocId,
+    recordQueryResult,
+    jumpToPdfPage,
+    setLlmProvider,
+    llmProvider,
   } = useAppStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const suggestedPrompts = useMemo(
+    () =>
+      doc
+        ? [
+            `What was total revenue for ${doc.company}?`,
+            `What was R&D expense for ${doc.company}?`,
+            `What are the geographic revenue segments for ${doc.company}?`,
+            `What was net income for ${doc.company}?`,
+          ]
+        : [
+            "What was total revenue?",
+            "What was R&D expense?",
+            "What are geographic revenue segments?",
+            "What was net income?",
+          ],
+    [doc],
+  );
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -155,6 +137,11 @@ export function ChatPanel() {
   const send = async (text?: string) => {
     const content = (text ?? input).trim();
     if (!content || isStreaming) return;
+
+    if (!doc?.companySlug) {
+      return;
+    }
+
     setInput("");
     addMessage({
       id: crypto.randomUUID(),
@@ -171,14 +158,64 @@ export function ChatPanel() {
     });
     setStreaming(true);
 
-    const { content: full, tool } = buildResponse(content, selectedDocId);
-    const tokens = full.split(/(\s+)/);
-    for (const t of tokens) {
-      await new Promise((r) => setTimeout(r, 18));
-      appendToLast(t);
+    try {
+      const response = await queryFiling(doc.companySlug, content);
+      setLlmProvider(response.llm_provider);
+
+      const full = formatAnswerMarkdown(response);
+      const tokens = full.split(/(\s+)/);
+      for (const token of tokens) {
+        await new Promise((r) => setTimeout(r, 12));
+        appendToLast(token);
+      }
+
+      const tool = buildToolFromResponse(response, doc.ticker);
+      attachToolToLast(tool);
+
+      const { answer } = response;
+      if (answer.label || answer.value != null) {
+        recordQueryResult(
+          doc.id,
+          doc.companySlug,
+          {
+            id: crypto.randomUUID(),
+            label: answer.label ?? "Extracted value",
+            value: answer.value ?? null,
+            unit: answer.unit,
+            fiscalYear: answer.fiscal_year,
+            sourceText: answer.source_text,
+            question: content,
+            queriedAt: new Date().toISOString(),
+            confidence: tool.confidence,
+          },
+          tool.confidence,
+        );
+      }
+
+      const targetPage = tool.retrievedPages[0]?.page;
+      if (targetPage && targetPage > 0) {
+        jumpToPdfPage(targetPage);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Query failed unexpectedly.";
+      appendToLast(
+        `### Unable to answer\n\n${message}\n\nUpload and index this filing from the dashboard first.`,
+      );
+      attachToolToLast({
+        retrievedPages: [],
+        extractedValues: [],
+        reasoning: [
+          "Attempted to query the backend RAG pipeline.",
+          message.includes("No embedded chunks")
+            ? "No indexed chunks found for this company."
+            : "The request failed before retrieval completed.",
+        ],
+        confidence: 0,
+      });
+    } finally {
+      setStreaming(false);
     }
-    attachToolToLast(tool);
-    setStreaming(false);
   };
 
   return (
@@ -193,7 +230,7 @@ export function ChatPanel() {
               Financial Agent
             </h2>
             <p className="text-[11px] leading-tight text-muted-foreground">
-              Groq · 10-K corpus
+              {llmProvider} · {doc?.company ?? "Select a document"}
             </p>
           </div>
         </div>
@@ -249,7 +286,7 @@ export function ChatPanel() {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
                 </div>
-                Analyzing filings...
+                Querying filing...
               </div>
             )}
           </div>
@@ -273,7 +310,7 @@ export function ChatPanel() {
             />
             <Button
               onClick={() => void send()}
-              disabled={!input.trim() || isStreaming}
+              disabled={!input.trim() || isStreaming || !doc}
               size="icon"
               className="h-9 w-9 shrink-0"
             >
@@ -281,8 +318,7 @@ export function ChatPanel() {
             </Button>
           </div>
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
-            Outputs are simulated for demo purposes — always verify against source
-            filings.
+            Answers come from indexed 10-K chunks — verify against the source PDF.
           </p>
         </div>
       </div>
@@ -292,6 +328,8 @@ export function ChatPanel() {
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const jumpToPdfPage = useAppStore((s) => s.jumpToPdfPage);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -325,13 +363,24 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
           )}
         </div>
-        {message.tool && <ToolOutput tool={message.tool} />}
+        {message.tool && (
+          <ToolOutput
+            tool={message.tool}
+            onPageClick={(page) => jumpToPdfPage(page)}
+          />
+        )}
       </div>
     </motion.div>
   );
 }
 
-function ToolOutput({ tool }: { tool: NonNullable<ChatMessage["tool"]> }) {
+function ToolOutput({
+  tool,
+  onPageClick,
+}: {
+  tool: NonNullable<ChatMessage["tool"]>;
+  onPageClick: (page: number) => void;
+}) {
   return (
     <div className="w-full space-y-2 rounded-xl border border-border/70 bg-card/40 p-2 backdrop-blur">
       <Section
@@ -339,22 +388,31 @@ function ToolOutput({ tool }: { tool: NonNullable<ChatMessage["tool"]> }) {
         label="Retrieved Pages"
         badge={`${tool.retrievedPages.length}`}
       >
-        <ul className="space-y-2">
-          {tool.retrievedPages.map((p, i) => (
-            <li
-              key={i}
-              className="rounded-md border border-border/60 bg-background/40 p-2 text-xs"
-            >
-              <div className="mb-0.5 flex items-center gap-2">
-                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-                  {p.doc}
-                </span>
-                <span className="text-muted-foreground">p. {p.page}</span>
-              </div>
-              <p className="text-muted-foreground">&ldquo;{p.snippet}&rdquo;</p>
-            </li>
-          ))}
-        </ul>
+        {tool.retrievedPages.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No passages retrieved.</p>
+        ) : (
+          <ul className="space-y-2">
+            {tool.retrievedPages.map((p, i) => (
+              <li key={i}>
+                <button
+                  type="button"
+                  onClick={() => onPageClick(p.page)}
+                  className="w-full rounded-md border border-border/60 bg-background/40 p-2 text-left text-xs transition-colors hover:border-primary/40 hover:bg-background/70"
+                >
+                  <div className="mb-0.5 flex items-center gap-2">
+                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                      {p.doc}
+                    </span>
+                    <span className="text-muted-foreground">p. {p.page}</span>
+                  </div>
+                  <p className="text-muted-foreground">
+                    &ldquo;{p.snippet}&rdquo;
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
       {tool.extractedValues.length > 0 && (
         <Section

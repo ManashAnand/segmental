@@ -16,11 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAppStore } from "@/lib/store";
 import { uploadTenK } from "@/lib/api";
 import type { UploadResult } from "@/lib/types";
-import {
-  slugFromFilename,
-  tickerFromSlug,
-  type UploadedDoc,
-} from "@/lib/mock-data";
+import { uploadResultToDoc } from "@/lib/upload-helpers";
 
 interface QueueItem {
   id: string;
@@ -33,13 +29,15 @@ interface QueueItem {
 
 const MAX_FILES = 10;
 const MAX_SIZE = 25 * 1024 * 1024;
+const REDIRECT_DELAY_MS = 1400;
 
 export function UploadZone() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadingRef = useRef<Set<string>>(new Set());
+  const finalizedRef = useRef(false);
   const router = useRouter();
   const addDocuments = useAppStore((s) => s.addDocuments);
 
@@ -89,6 +87,7 @@ export function UploadZone() {
         };
         return updated;
       });
+      toast.error(message);
     } finally {
       uploadingRef.current.delete(item.id);
     }
@@ -102,9 +101,50 @@ export function UploadZone() {
     }
   }, [queue, uploadFile]);
 
+  const finalizeUploads = useCallback(() => {
+    if (finalizedRef.current) return;
+
+    const successful = queue.filter((q) => q.result && !q.error);
+    if (successful.length === 0) {
+      toast.error(
+        "Upload failed. Make sure the backend is running (docker compose up).",
+      );
+      return;
+    }
+
+    finalizedRef.current = true;
+    setFinalizing(true);
+
+    const docs = successful.map((q) =>
+      uploadResultToDoc(q.result!, q.file),
+    );
+
+    addDocuments(docs);
+    toast.success(
+      `${docs.length} report${docs.length > 1 ? "s" : ""} indexed — opening agent…`,
+    );
+
+    setTimeout(() => {
+      setQueue([]);
+      finalizedRef.current = false;
+      setFinalizing(false);
+      router.push("/agent");
+    }, REDIRECT_DELAY_MS);
+  }, [queue, addDocuments, router]);
+
+  useEffect(() => {
+    if (queue.length === 0 || finalizing) return;
+    if (!queue.every((q) => q.done)) return;
+
+    const timer = setTimeout(finalizeUploads, 500);
+    return () => clearTimeout(timer);
+  }, [queue, finalizing, finalizeUploads]);
+
   const onFiles = useCallback((files: FileList | File[]) => {
+    finalizedRef.current = false;
     const arr = Array.from(files).filter(
-      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
+      (f) =>
+        f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
     );
     if (arr.length === 0) {
       toast.error("Only PDF files are supported.");
@@ -130,46 +170,9 @@ export function UploadZone() {
     });
   }, []);
 
-  const remove = (id: string) => setQueue((q) => q.filter((x) => x.id !== id));
-
-  const submit = () => {
-    if (queue.length === 0) return;
-    if (!queue.every((q) => q.done)) {
-      toast.info("Wait for uploads to finish.");
-      return;
-    }
-
-    const successful = queue.filter((q) => q.result && !q.error);
-    if (successful.length === 0) {
-      toast.error("All uploads failed. Is the API running on localhost:8000?");
-      return;
-    }
-
-    setSubmitting(true);
-    const docs: UploadedDoc[] = successful.map((q) => {
-      const result = q.result!;
-      const slug = result.company || slugFromFilename(q.file.name);
-      return {
-        id: `doc-${crypto.randomUUID().slice(0, 8)}`,
-        company: slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-        ticker: tickerFromSlug(slug),
-        companySlug: slug,
-        fileName: result.filename || q.file.name,
-        size: q.file.size,
-        uploadedAt: new Date().toISOString(),
-        status: "processed",
-        fieldsExtracted: 120 + Math.floor(Math.random() * 80),
-        confidence: 0.88 + Math.random() * 0.1,
-        accuracy: 0.9 + Math.random() * 0.08,
-        chunksIndexed: result.chunks_indexed,
-      };
-    });
-
-    addDocuments(docs);
-    toast.success(`${docs.length} report${docs.length > 1 ? "s" : ""} uploaded.`);
-    setQueue([]);
-    setSubmitting(false);
-    setTimeout(() => router.push("/agent"), 400);
+  const remove = (id: string) => {
+    finalizedRef.current = false;
+    setQueue((q) => q.filter((x) => x.id !== id));
   };
 
   return (
@@ -188,8 +191,8 @@ export function UploadZone() {
         animate={{ scale: dragOver ? 1.01 : 1 }}
         className={`glow-card group relative cursor-pointer p-8 transition-colors sm:p-10 ${
           dragOver ? "border-primary" : ""
-        }`}
-        onClick={() => inputRef.current?.click()}
+        } ${finalizing ? "pointer-events-none opacity-80" : ""}`}
+        onClick={() => !finalizing && inputRef.current?.click()}
       >
         <input
           ref={inputRef}
@@ -197,27 +200,35 @@ export function UploadZone() {
           accept="application/pdf"
           multiple
           className="hidden"
+          disabled={finalizing}
           onChange={(e) => e.target.files && onFiles(e.target.files)}
         />
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="relative">
             <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-2xl" />
             <div className="relative grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-chart-2 text-primary-foreground shadow-xl shadow-primary/30">
-              <UploadCloud className="h-7 w-7" />
+              {finalizing ? (
+                <Loader2 className="h-7 w-7 animate-spin" />
+              ) : (
+                <UploadCloud className="h-7 w-7" />
+              )}
             </div>
           </div>
           <div className="space-y-1.5">
             <h3 className="text-lg font-semibold sm:text-xl">
-              Drop your 10-K reports here
+              {finalizing
+                ? "Indexed — updating dashboard…"
+                : "Drop your 10-K reports here"}
             </h3>
             <p className="text-sm text-muted-foreground">
-              PDF only · Up to 10 files · Max 25MB each
+              PDF only · Up to 10 files · Max 25MB each · Indexed via V2 API
             </p>
           </div>
           <Button
             variant="outline"
             size="sm"
             className="mt-1"
+            disabled={finalizing}
             onClick={(e) => {
               e.stopPropagation();
               inputRef.current?.click();
@@ -233,12 +244,19 @@ export function UploadZone() {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, height: 0 }}
             className="glow-card divide-y divide-border/60 p-2"
           >
             {queue.map((q) => (
-              <div key={q.id} className="flex items-center gap-3 p-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive">
+              <motion.div
+                key={q.id}
+                layout
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 8 }}
+                className="flex items-center gap-3 p-3"
+              >
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
                   <FileText className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -261,38 +279,33 @@ export function UploadZone() {
                       <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     )}
                   </div>
+                  {q.result && (
+                    <p className="mt-1 text-[11px] text-chart-3">
+                      {q.result.chunks_indexed} chunks indexed · {q.result.company}
+                    </p>
+                  )}
                 </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remove(q.id);
-                  }}
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+                {!finalizing && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      remove(q.id);
+                    }}
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </motion.div>
             ))}
-            <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center justify-between p-3">
               <span className="text-xs text-muted-foreground">
                 {queue.filter((q) => q.done && !q.error).length}/{queue.length}{" "}
-                uploaded
+                indexed
+                {finalizing && " · redirecting to agent…"}
               </span>
-              <Button
-                onClick={submit}
-                disabled={!queue.every((q) => q.done) || submitting}
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Processing…
-                  </>
-                ) : (
-                  "Process & open agent"
-                )}
-              </Button>
             </div>
           </motion.div>
         )}
