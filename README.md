@@ -105,6 +105,28 @@ curl -X POST http://localhost:8000/api/v2/query \
 
 ---
 
+## Demo & Architecture Walkthrough
+
+A complete walkthrough of the project, including:
+
+* System architecture
+* Design decisions
+* Retrieval strategy
+* V1 vs V2 evolution
+* Evaluation methodology
+* Error analysis
+* Financial metric extraction pipeline
+* Agent workflow
+
+Video Presentation:
+
+https://drive.google.com/file/d/1IpbOtJulYRby3vpgU3u5fNkC-eLqKtDA/view?usp=sharing
+
+Repository:
+
+https://github.com/ManashAnand/segmental
+
+
 ## API (versioned)
 
 | Version | Path | Status |
@@ -135,6 +157,8 @@ app/api/routes/
 ---
 
 ## What we built
+<img width="1901" height="936" alt="image" src="https://github.com/user-attachments/assets/ddecb7a8-0232-48c6-ab08-dffcfce51f3e" />
+
 
 ### Backend (`backend/`)
 
