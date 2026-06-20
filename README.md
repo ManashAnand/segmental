@@ -21,6 +21,90 @@ Demonstrate: extraction → evaluation → error analysis → iterative improvem
 
 ---
 
+## How to run
+
+Start here to get the stack running before reading the architecture sections below.
+
+### Docker (recommended)
+
+```bash
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| **App (frontend)** | http://localhost:3000 |
+| API docs | http://localhost:8000/docs |
+| Health | http://localhost:8000/health |
+| Postgres | `localhost:5432` (user/pass/db: `segment`) |
+| Ollama | `localhost:11434` |
+
+```bash
+# One-time: pull Ollama model (if not using Groq)
+docker exec segment-ollama ollama pull llama3.2:3b
+
+# Copy env and set GROQ_API_KEY (optional, faster LLM)
+cp backend/.env.example backend/.env
+
+# Rebuild API after backend code changes
+docker compose build api && docker compose up -d api
+
+# Stop / reset DB + embeddings
+docker compose down
+docker compose down -v   # wipes Postgres volume
+```
+
+First build downloads PyTorch + `all-MiniLM-L6-v2` (~few minutes).
+
+**Typical flow:** `docker compose up` → `cd frontend && npm install && npm run dev` → open http://localhost:3000 → upload a PDF → use `/agent` to chat.
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000. The app proxies `/api/*` to `http://localhost:8000`.
+
+### Backend (local, without Docker)
+
+```bash
+cd backend
+cp .env.example .env
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt -r requirements-docker.txt
+python app.py
+```
+
+Semantic retrieval needs Postgres with pgvector — run at least `docker compose up db` (or the full Compose stack) alongside local API.
+
+### Batch extraction & accuracy (CLI, V1)
+
+```bash
+cd backend
+python scripts/batch_extract_v1.py --pdf-dir ../data
+python scripts/build_accuracy_report.py
+```
+
+Output: `backend/app/data/extracted/v1/accuracy_report.json`
+
+### Quick API smoke test (V2)
+
+```bash
+curl -X POST http://localhost:8000/api/v2/upload \
+  -F "file=@data/alphabet-10k.pdf" \
+  -F "company=alphabet" \
+  -F "overwrite=true"
+
+curl -X POST http://localhost:8000/api/v2/query \
+  -H "Content-Type: application/json" \
+  -d '{"company":"alphabet","question":"What were total Revenues for FY2023 in millions?"}'
+```
+
+---
+
 ## API (versioned)
 
 | Version | Path | Status |
@@ -572,89 +656,6 @@ V2 addresses this with semantic retrieval + LLM column-aware parsing — see the
 
 ---
 
-## How to run
-
-### Docker (recommended)
-
-```bash
-docker compose up --build
-```
-
-| Service | URL |
-|---------|-----|
-| API docs | http://localhost:8000/docs |
-| Health | http://localhost:8000/health |
-| Postgres | `localhost:5432` (user/pass/db: `segment`) |
-| Ollama | `localhost:11434` |
-
-```bash
-# One-time: pull Ollama model (if not using Groq)
-docker exec segment-ollama ollama pull llama3.2:3b
-
-# Set GROQ_API_KEY in backend/.env
-
-# V2 upload + embed
-curl -X POST http://localhost:8000/api/v2/upload \
-  -F "file=@data/adbe-2024-annual-report.pdf" \
-  -F "overwrite=true"
-
-# V2 — ask anything
-curl -X POST http://localhost:8000/api/v2/query \
-  -H "Content-Type: application/json" \
-  -d '{"company":"alphabet","question":"What were total Revenues for the year ended December 31, 2023, in millions?"}'
-
-# V2 — assignment fields only (optional)
-curl -X POST http://localhost:8000/api/v2/extract \
-  -H "Content-Type: application/json" \
-  -d '{"company":"alphabet"}'
-
-# Stop
-docker compose down
-
-# Fresh DB + embeddings
-docker compose down -v
-```
-
-First build downloads PyTorch + `all-MiniLM-L6-v2` (~few minutes).
-
-### Backend (local, without Docker)
-
-```bash
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt -r requirements-docker.txt
-python app.py
-```
-
-Semantic retrieval needs Postgres — use Docker for the full stack.
-
-### Batch extraction & accuracy (CLI)
-
-```bash
-cd backend
-python scripts/batch_extract_v1.py --pdf-dir ../data
-python scripts/build_accuracy_report.py
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-## Planned improvements
-
-- V2 batch accuracy report across all 9 companies (Alphabet showcase done)
-- Cross-company compare queries in `/agent` chat
-- Stricter JSON validation / retry on malformed LLM output
-- Optional cross-encoder reranker if recall drops on longer filings
-
----
-
 ## Project structure
 
 ```
@@ -677,6 +678,113 @@ npm run dev
 │   └── scripts/
 └── frontend/
 ```
+
+---
+
+## Planned improvements (near-term)
+
+- V2 batch accuracy report across all 9 companies (Alphabet showcase done)
+- Cross-company compare queries in `/agent` chat
+- Stricter JSON validation / retry on malformed LLM output
+- Optional cross-encoder reranker if recall drops on longer filings
+
+---
+
+## V3 roadmap: Orchestrator, sub-agents & context layer
+
+V2 is a **single retrieval + one LLM call**. V3 splits work across an **orchestrator** and **specialized sub-agents**, backed by a **whole-filing context layer** so answers are structured, validated, and traceable.
+
+### Why V3
+
+| V2 gap | V3 response |
+|--------|-------------|
+| One shot — JSON parse fails, no retry | Validation agent + orchestrator retry loop |
+| ~8–16 chunks only | Context layer indexes full filing + structured tables |
+| Wrong column still possible | Table parser + validation against `source_text` |
+| Scanned / image pages empty (pdfplumber) | OCR agent for flagged pages only |
+| No audit trail | Orchestrator trace: which agent, which page, why |
+
+### Architecture
+
+```mermaid
+flowchart TB
+  Q[User question] --> ORCH[Orchestrator]
+  ORCH --> RET[Retrieval Agent]
+  ORCH --> PAR[Parsing / Table Agent]
+  ORCH --> EXT[Extraction Agent]
+  ORCH --> VAL[Validation Agent]
+  ORCH --> JSON[JSON Binding Agent]
+  ORCH --> CIT[Citation Agent]
+  ORCH --> OCR[OCR Agent]
+  ORCH --> ANA[Analytical Agent]
+  RET & PAR & EXT & VAL & JSON & CIT & OCR & ANA --> CTX[(Context Layer)]
+```
+
+**V2:** `question → retrieve 8 chunks → one LLM → JSON`
+
+**V3:** `question → orchestrator → agent loop → context layer → validated JSON`
+
+### Orchestrator
+
+The conductor — outputs a **task graph**, not a final answer. It decides:
+
+- Retrieval only vs multi-hop reasoning
+- Target fiscal year and metric type
+- Whether validation failed → re-retrieve with broader query
+- Fast model vs strong model escalation
+- Whether pages are scanned → route to **OCR agent**
+
+Think **LangGraph** / workflow engine, not one chat completion.
+
+### Sub-agents
+
+| Agent | Role |
+|-------|------|
+| **Retrieval** | Semantic + keyword search; writes candidate chunks to context layer |
+| **Parsing / table** | Reconstruct rows/columns from flat text; tag year / label / value |
+| **Extraction** | Propose draft JSON (`label`, `value`, `unit`, `year`) — never final alone |
+| **Validation** | Pydantic/schema check, numeric sanity, cross-check `source_text` |
+| **JSON binding** | Strict schema enforcement, repair fences, coerce numbers |
+| **Citation** | Page links; verify snippet supports the claimed value |
+| **Analytical** | Max/min/rank across structured rows (“best segment”, “highest region”) |
+| **OCR** | When pdfplumber returns empty text (scanned exhibits, image tables) — local OCR (e.g. Tesseract) on **flagged pages only**; merge text back into document index before embed/retrieve |
+
+The OCR agent addresses a V2 blind spot: digital pages work fine, but scanned 10-K exhibits produce no chunks today. The orchestrator detects blank pages at ingest (or on poor retrieval) and OCRs only those pages — not all 120 pages every time.
+
+### Context layer (three tiers)
+
+**Layer 1 — Document index** (ingest, once per PDF)
+
+- Page catalog (section, Item 7, Note 2, etc.)
+- pgvector chunk index (V2 today)
+- Parsed table store (rows as JSON per page)
+- Entity index (segments, geographies, fiscal years)
+- Page quality flags: `digital_text` \| `scanned` \| `ocr_done`
+- OCR text store alongside pdfplumber cache
+
+**Layer 2 — Session context** (per user / chat)
+
+- Prior questions and confirmed extractions
+- Active company, fiscal year scope, user corrections
+
+**Layer 3 — Working memory** (per query, orchestrator-owned)
+
+- Retrieved chunks + parsed table slices
+- Draft answers, validation errors, retry count
+- Trace log for UI (“why we picked this number”)
+
+Agents read/write through the orchestrator — state is not lost mid-pipeline.
+
+### Implementation phases
+
+1. **Validation loop** — Pydantic + retry around existing V2 `QueryAgent`
+2. **Split services** — retrieval / extract / validate as separate modules
+3. **Ingest-time tables** — parser populates context layer in Postgres (JSONB)
+4. **Orchestrator** — LangGraph or custom state machine wiring sub-agents
+5. **OCR path** — page-quality detection at ingest; OCR agent for flagged pages
+6. **Session store** — Redis for chat context + citation verifier
+
+Future code would extend `backend/app/services/agent/` with an orchestrator package.
 
 ---
 
